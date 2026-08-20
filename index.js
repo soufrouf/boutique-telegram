@@ -1,27 +1,27 @@
 const { Telegraf, Markup } = require('telegraf');
+const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
 require('dotenv').config();
 
-// Micro-serveur HTTP pour éviter l'erreur de port sur Render Free
+const app = express();
 const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => res.end('Bot is running')).listen(PORT, () => {
-  console.log(`Serveur Web d'écoute actif sur le port ${PORT}`);
-});
-
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
 
 if (!BOT_TOKEN) {
-  console.error("ERREUR : Le BOT_TOKEN est manquant dans les variables d'environnement");
+  console.error("ERREUR : Le BOT_TOKEN est manquant.");
   process.exit(1);
 }
 
 const bot = new Telegraf(BOT_TOKEN);
 const DATA_FILE = path.join(__dirname, 'data.json');
 
-// Initialisation des données
+// Servir les fichiers statiques (notre dossier public avec index.html)
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Lecture des données
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) {
     const initialData = { categories: [] };
@@ -31,160 +31,29 @@ function loadData() {
   return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
 }
 
-function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+// Route API pour envoyer les produits à la Mini App
+app.get('/api/products', (req, res) => {
+  const data = loadData();
+  res.json(data);
+});
 
-// État temporaire pour le processus d'ajout admin
-const adminState = {};
-
-// --- VUE CLIENT ---
+// --- COMMANDE DU BOT TELEGRAM ---
 
 bot.start((ctx) => {
+  // Récupère automatiquement l'URL de Render
+  const appUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+
   ctx.reply(
-    "👋 Bienvenue sur notre boutique !\n\nCliquez sur le bouton ci-dessous pour parcourir notre catalogue :",
+    "👋 Bienvenue dans notre boutique !\n\nCliquez sur le bouton ci-dessous pour ouvrir la boutique en plein écran :",
     Markup.inlineKeyboard([
-      [Markup.button.callback("📂 Parcourir le catalogue", "view_categories")]
+      [Markup.button.webApp("🛍️ Ouvrir la boutique", appUrl)]
     ])
   );
 });
 
-bot.action("view_categories", (ctx) => {
-  const data = loadData();
-  if (data.categories.length === 0) {
-    return ctx.reply("Le catalogue est actuellement vide.");
-  }
-
-  const buttons = data.categories.map((cat, index) => [
-    Markup.button.callback(cat.name, `showcat_${index}`)
-  ]);
-
-  ctx.reply("📁 Sélectionnez une catégorie :", Markup.inlineKeyboard(buttons));
-});
-
-bot.action(/showcat_(\d+)/, (ctx) => {
-  const catIndex = parseInt(ctx.match[1]);
-  const data = loadData();
-  const category = data.categories[catIndex];
-
-  if (!category || !category.products || category.products.length === 0) {
-    return ctx.reply("Aucun produit dans cette catégorie pour le moment.");
-  }
-
-  category.products.forEach((prod) => {
-    const caption = `<b>${prod.title}</b>\n\n💰 Prix : ${prod.price}`;
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback("🛒 Commander", `buy_${prod.title}`)]
-    ]);
-
-    if (prod.photo) {
-      ctx.replyWithPhoto(prod.photo, { caption, parse_mode: 'HTML', ...keyboard });
-    } else {
-      ctx.replyWithHTML(caption, keyboard);
-    }
-  });
-});
-
-bot.action(/buy_(.+)/, (ctx) => {
-  const item = ctx.match[1];
-  ctx.reply(`✅ Pour finaliser votre commande de "${item}", veuillez contacter directement l'administrateur.`);
-});
-
-// --- VUE ADMINISTRATEUR ---
-
-bot.command("admin", (ctx) => {
-  if (String(ctx.from.id) !== String(ADMIN_ID)) {
-    return ctx.reply("⛔ Accès refusé. Vous n'êtes pas l'administrateur de ce bot.");
-  }
-
-  ctx.reply(
-    "⚙️ **Panneau d'administration**\nQue souhaitez-vous faire ?",
-    Markup.inlineKeyboard([
-      [Markup.button.callback("➕ Ajouter une catégorie", "add_cat")],
-      [Markup.button.callback("📦 Ajouter un produit", "add_prod")]
-    ])
-  );
-});
-
-bot.action("add_cat", (ctx) => {
-  if (String(ctx.from.id) !== String(ADMIN_ID)) return;
-  adminState[ctx.from.id] = { step: "WAITING_CAT_NAME" };
-  ctx.reply("Veuillez saisir le nom de la nouvelle catégorie :");
-});
-
-bot.action("add_prod", (ctx) => {
-  if (String(ctx.from.id) !== String(ADMIN_ID)) return;
-  const data = loadData();
-  if (data.categories.length === 0) {
-    return ctx.reply("Veuillez d'abord créer au moins une catégorie.");
-  }
-
-  const buttons = data.categories.map((cat, index) => [
-    Markup.button.callback(cat.name, `admin_select_cat_${index}`)
-  ]);
-
-  ctx.reply("Dans quelle catégorie souhaitez-vous ajouter le produit ?", Markup.inlineKeyboard(buttons));
-});
-
-bot.action(/admin_select_cat_(\d+)/, (ctx) => {
-  if (String(ctx.from.id) !== String(ADMIN_ID)) return;
-  const catIndex = parseInt(ctx.match[1]);
-  adminState[ctx.from.id] = { step: "WAITING_PROD_TITLE", catIndex };
-  ctx.reply("Entrez le titre du produit :");
-});
-
-bot.on("text", (ctx) => {
-  const userId = ctx.from.id;
-  const state = adminState[userId];
-  if (!state) return;
-
-  if (state.step === "WAITING_CAT_NAME") {
-    const data = loadData();
-    data.categories.push({ name: ctx.message.text, products: [] });
-    saveData(data);
-    delete adminState[userId];
-    return ctx.reply(`✅ Catégorie "${ctx.message.text}" ajoutée avec succès !`);
-  }
-
-  if (state.step === "WAITING_PROD_TITLE") {
-    state.title = ctx.message.text;
-    state.step = "WAITING_PROD_PRICE";
-    return ctx.reply("Entrez le prix du produit (ex: 20€) :");
-  }
-
-  if (state.step === "WAITING_PROD_PRICE") {
-    state.price = ctx.message.text;
-    state.step = "WAITING_PROD_PHOTO";
-    return ctx.reply("Envoyez l'image du produit (ou tapez 'passer' pour ne pas en mettre) :");
-  }
-
-  if (state.step === "WAITING_PROD_PHOTO" && ctx.message.text.toLowerCase() === "passer") {
-    saveProduct(userId, null);
-    return ctx.reply("✅ Produit ajouté sans photo !");
-  }
-});
-
-bot.on("photo", (ctx) => {
-  const userId = ctx.from.id;
-  const state = adminState[userId];
-  if (!state || state.step !== "WAITING_PROD_PHOTO") return;
-
-  const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-  saveProduct(userId, photoId);
-  ctx.reply("✅ Produit avec photo ajouté avec succès au catalogue !");
-});
-
-function saveProduct(userId, photoId) {
-  const state = adminState[userId];
-  const data = loadData();
-  data.categories[state.catIndex].products.push({
-    title: state.title,
-    price: state.price,
-    photo: photoId
-  });
-  saveData(data);
-  delete adminState[userId];
-}
-
+// Lancement simultané du bot et du serveur web
 bot.launch();
-console.log("Bot lancé avec succès !");
+
+app.listen(PORT, () => {
+  console.log(`Serveur Mini App actif sur le port ${PORT}`);
+});
