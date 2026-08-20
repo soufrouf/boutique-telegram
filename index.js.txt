@@ -1,7 +1,14 @@
-const { Telegraf, Markup, Sessions } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 require('dotenv').config();
+
+// Micro-serveur HTTP pour éviter l'erreur de port sur Render Free
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => res.end('Bot is running')).listen(PORT, () => {
+  console.log(`Serveur Web d'écoute actif sur le port ${PORT}`);
+});
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
