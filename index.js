@@ -14,7 +14,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
 
 if (!BOT_TOKEN) {
-  console.error("ERREUR : Le BOT_TOKEN est manquant dans le fichier .env");
+  console.error("ERREUR : Le BOT_TOKEN est manquant dans les variables d'environnement");
   process.exit(1);
 }
 
@@ -56,23 +56,23 @@ bot.action("view_categories", (ctx) => {
   }
 
   const buttons = data.categories.map((cat, index) => [
-    Markup.button.callback(cat.name, `cat_${index}`)
+    Markup.button.callback(cat.name, `showcat_${index}`)
   ]);
 
   ctx.reply("📁 Sélectionnez une catégorie :", Markup.inlineKeyboard(buttons));
 });
 
-bot.action(/cat_(\d+)/, (ctx) => {
+bot.action(/showcat_(\d+)/, (ctx) => {
   const catIndex = parseInt(ctx.match[1]);
   const data = loadData();
   const category = data.categories[catIndex];
 
-  if (!category || category.products.length === 0) {
+  if (!category || !category.products || category.products.length === 0) {
     return ctx.reply("Aucun produit dans cette catégorie pour le moment.");
   }
 
   category.products.forEach((prod) => {
-    const caption = `<b>${prod.title}</b>\n\n💰 Prix : ${prod.price}\n\n📝 ${prod.description || ''}`;
+    const caption = `<b>${prod.title}</b>\n\n💰 Prix : ${prod.price}`;
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback("🛒 Commander", `buy_${prod.title}`)]
     ]);
@@ -120,13 +120,13 @@ bot.action("add_prod", (ctx) => {
   }
 
   const buttons = data.categories.map((cat, index) => [
-    Markup.button.callback(cat.name, `select_cat_${index}`)
+    Markup.button.callback(cat.name, `admin_select_cat_${index}`)
   ]);
 
   ctx.reply("Dans quelle catégorie souhaitez-vous ajouter le produit ?", Markup.inlineKeyboard(buttons));
 });
 
-bot.action(/select_cat_(\d+)/, (ctx) => {
+bot.action(/admin_select_cat_(\d+)/, (ctx) => {
   if (String(ctx.from.id) !== String(ADMIN_ID)) return;
   const catIndex = parseInt(ctx.match[1]);
   adminState[ctx.from.id] = { step: "WAITING_PROD_TITLE", catIndex };
