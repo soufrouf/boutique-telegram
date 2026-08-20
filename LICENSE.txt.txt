@@ -1,5 +1,0 @@
-LICENCE D'UTILISATION LIMITÉE
-
-Ce code source est fourni à titre de licence d'utilisation personnelle et non exclusive.
-Il est strictement interdit de renuméroter, redistribuer ou revendre ce code source à des tiers.
-L'utilisateur est seul responsable du déploiement, du contenu commercialisé et du respect des lois en vigueur.
