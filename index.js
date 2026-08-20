@@ -20,7 +20,6 @@ const DATA_FILE = path.join(__dirname, 'data.json');
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// État temporaire de la création admin
 const adminState = {};
 
 function loadData() {
@@ -36,19 +35,16 @@ function saveData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// Route API consommée par la Mini App
 app.get('/api/products', (req, res) => {
   const data = loadData();
   res.json(data);
 });
 
-// --- COMMANDES ET ACTIONS TELEGRAM ---
-
 bot.start((ctx) => {
   const appUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
   ctx.reply(
-    "👋 Bienvenue dans notre boutique !\n\nCliquez sur le bouton ci-dessous pour ouvrir la boutique en plein écran :",
+    "👋 Bienvenue dans notre boutique !\n\nCliquez sur le bouton ci-dessous pour ouvrir la boutique :",
     Markup.inlineKeyboard([
       [Markup.button.webApp("🛍️ Ouvrir la boutique", appUrl)]
     ])
@@ -117,10 +113,17 @@ bot.on("text", (ctx) => {
 
   if (state.step === "WAITING_PROD_PRICE") {
     state.price = ctx.message.text;
+    state.step = "WAITING_PROD_PHOTO";
+    return ctx.reply("Envoyez le lien (URL) de l'image du produit (ou tapez 'passer' pour ne pas en mettre) :");
+  }
+
+  if (state.step === "WAITING_PROD_PHOTO") {
+    const photoUrl = ctx.message.text.toLowerCase() === "passer" ? "" : ctx.message.text;
     const data = loadData();
     data.categories[state.catIndex].products.push({
       title: state.title,
-      price: state.price
+      price: state.price,
+      image: photoUrl
     });
     saveData(data);
     delete adminState[userId];
