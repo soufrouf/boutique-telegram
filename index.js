@@ -24,11 +24,30 @@ const adminState = {};
 
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) {
-    const initialData = { categories: [] };
+    const initialData = {
+      categories: [],
+      settings: {
+        cb: { active: false, url: "" },
+        paypal: { active: false, url: "" },
+        crypto: { active: false, address: "" },
+        virement: { active: false, iban: "" },
+        support: { active: false, username: "" }
+      }
+    };
     fs.writeFileSync(DATA_FILE, JSON.stringify(initialData, null, 2));
     return initialData;
   }
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  if (!data.settings) {
+    data.settings = {
+      cb: { active: false, url: "" },
+      paypal: { active: false, url: "" },
+      crypto: { active: false, address: "" },
+      virement: { active: false, iban: "" },
+      support: { active: false, username: "" }
+    };
+  }
+  return data;
 }
 
 function saveData(data) {
@@ -42,29 +61,77 @@ app.get('/api/products', (req, res) => {
 
 bot.start((ctx) => {
   const appUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-
   ctx.reply(
-    "👋 Bienvenue dans notre boutique !\n\nCliquez sur le bouton ci-dessous pour ouvrir la boutique :",
+    "👋 Bienvenue dans notre boutique !\n\nCliquez ci-dessous pour commander :",
     Markup.inlineKeyboard([
       [Markup.button.webApp("🛍️ Ouvrir la boutique", appUrl)]
     ])
   );
 });
 
+// --- PANNEAU ADMIN ---
+
 bot.command("admin", (ctx) => {
-  if (String(ctx.from.id) !== String(ADMIN_ID)) {
-    return ctx.reply("⛔ Accès refusé.");
-  }
+  if (String(ctx.from.id) !== String(ADMIN_ID)) return ctx.reply("⛔ Accès refusé.");
 
   ctx.reply(
-    "⚙️ **Panneau d'administration**\nQue souhaitez-vous faire ?",
+    "⚙️ **Panneau d'administration**\nChoisissez une option :",
     Markup.inlineKeyboard([
       [Markup.button.callback("➕ Ajouter une catégorie", "add_cat")],
-      [Markup.button.callback("📦 Ajouter un produit", "add_prod")]
+      [Markup.button.callback("📦 Ajouter un produit", "add_prod")],
+      [Markup.button.callback("💳 Configurer Paiements & Support", "config_pay")]
     ])
   );
 });
 
+// Menu Configuration des paiements
+bot.action("config_pay", (ctx) => {
+  if (String(ctx.from.id) !== String(ADMIN_ID)) return;
+  const data = loadData();
+  const s = data.settings;
+
+  const buttons = [
+    [Markup.button.callback(`${s.cb.active ? '✅' : '❌'} Carte Bancaire`, "toggle_cb")],
+    [Markup.button.callback(`${s.paypal.active ? '✅' : '❌'} PayPal`, "toggle_paypal")],
+    [Markup.button.callback(`${s.crypto.active ? '✅' : '❌'} Crypto`, "toggle_crypto")],
+    [Markup.button.callback(`${s.virement.active ? '✅' : '❌'} Virement IBAN`, "toggle_virement")],
+    [Markup.button.callback(`${s.support.active ? '✅' : '❌'} Bouton Support Chat`, "toggle_support")],
+    [Markup.button.callback("⬅️ Retour Admin", "back_admin")]
+  ];
+
+  ctx.editMessageText("🛠️ **Gestion des Paiements & du Support**\nCliquez sur une option pour l'activer, la désactiver ou modifier ses informations :", Markup.inlineKeyboard(buttons));
+});
+
+bot.action("back_admin", (ctx) => {
+  if (String(ctx.from.id) !== String(ADMIN_ID)) return;
+  ctx.editMessageText("⚙️ **Panneau d'administration**\nChoisissez une option :", Markup.inlineKeyboard([
+    [Markup.button.callback("➕ Ajouter une catégorie", "add_cat")],
+    [Markup.button.callback("📦 Ajouter un produit", "add_prod")],
+    [Markup.button.callback("💳 Configurer Paiements & Support", "config_pay")]
+  ]));
+});
+
+// Handlers d'activation / modification des paramètres
+const togglePayment = (type, promptText) => (ctx) => {
+  if (String(ctx.from.id) !== String(ADMIN_ID)) return;
+  const data = loadData();
+  if (data.settings[type].active) {
+    data.settings[type].active = false;
+    saveData(data);
+    ctx.reply(`❌ ${type.toUpperCase()} désactivé.`);
+  } else {
+    adminState[ctx.from.id] = { step: `SET_${type.toUpperCase()}` };
+    ctx.reply(promptText);
+  }
+};
+
+bot.action("toggle_cb", togglePayment('cb', "Entrez votre lien de paiement CB (ex: Stripe) :"));
+bot.action("toggle_paypal", togglePayment('paypal', "Entrez votre lien PayPal.me :"));
+bot.action("toggle_crypto", togglePayment('crypto', "Entrez votre adresse Wallet Crypto :"));
+bot.action("toggle_virement", togglePayment('virement', "Entrez vos coordonnées bancaires (IBAN/BIC) :"));
+bot.action("toggle_support", togglePayment('support', "Entrez votre pseudo Telegram sans @ (ex: mon_pseudo) :"));
+
+// Gestion de la création catégorie/produit
 bot.action("add_cat", (ctx) => {
   if (String(ctx.from.id) !== String(ADMIN_ID)) return;
   adminState[ctx.from.id] = { step: "WAITING_CAT_NAME" };
@@ -74,64 +141,88 @@ bot.action("add_cat", (ctx) => {
 bot.action("add_prod", (ctx) => {
   if (String(ctx.from.id) !== String(ADMIN_ID)) return;
   const data = loadData();
-  if (data.categories.length === 0) {
-    return ctx.reply("Veuillez d'abord créer au moins une catégorie avec /admin.");
-  }
+  if (data.categories.length === 0) return ctx.reply("Créez d'abord une catégorie.");
 
   const buttons = data.categories.map((cat, index) => [
     Markup.button.callback(cat.name, `admin_select_cat_${index}`)
   ]);
-
-  ctx.reply("Dans quelle catégorie souhaitez-vous ajouter le produit ?", Markup.inlineKeyboard(buttons));
+  ctx.reply("Sélectionnez la catégorie :", Markup.inlineKeyboard(buttons));
 });
 
 bot.action(/admin_select_cat_(\d+)/, (ctx) => {
   if (String(ctx.from.id) !== String(ADMIN_ID)) return;
-  const catIndex = parseInt(ctx.match[1]);
-  adminState[ctx.from.id] = { step: "WAITING_PROD_TITLE", catIndex };
+  adminState[ctx.from.id] = { step: "WAITING_PROD_TITLE", catIndex: parseInt(ctx.match[1]) };
   ctx.reply("Entrez le titre du produit :");
 });
 
-// Traitement des messages texte
+// Traitement du texte envoyé par l'admin
 bot.on("text", async (ctx) => {
   const userId = ctx.from.id;
   const state = adminState[userId];
   if (!state) return;
 
+  const data = loadData();
+
+  // Configuration paiements
+  if (state.step === "SET_CB") {
+    data.settings.cb = { active: true, url: ctx.message.text };
+    saveData(data);
+    delete adminState[userId];
+    return ctx.reply("✅ Paiement par Carte Bancaire activé !");
+  }
+  if (state.step === "SET_PAYPAL") {
+    data.settings.paypal = { active: true, url: ctx.message.text };
+    saveData(data);
+    delete adminState[userId];
+    return ctx.reply("✅ PayPal activé !");
+  }
+  if (state.step === "SET_CRYPTO") {
+    data.settings.crypto = { active: true, address: ctx.message.text };
+    saveData(data);
+    delete adminState[userId];
+    return ctx.reply("✅ Paiement Crypto activé !");
+  }
+  if (state.step === "SET_VIREMENT") {
+    data.settings.virement = { active: true, iban: ctx.message.text };
+    saveData(data);
+    delete adminState[userId];
+    return ctx.reply("✅ Paiement par Virement activé !");
+  }
+  if (state.step === "SET_SUPPORT") {
+    data.settings.support = { active: true, username: ctx.message.text.replace('@', '') };
+    saveData(data);
+    delete adminState[userId];
+    return ctx.reply("✅ Bouton Support Chat activé !");
+  }
+
+  // Création catégorie / produit
   if (state.step === "WAITING_CAT_NAME") {
     state.catName = ctx.message.text;
     state.step = "WAITING_CAT_PHOTO";
     return ctx.reply(`Envoyez la photo pour la catégorie "${state.catName}" (ou tapez 'passer') :`);
   }
-
   if (state.step === "WAITING_CAT_PHOTO" && ctx.message.text.toLowerCase() === "passer") {
-    const data = loadData();
     data.categories.push({ name: state.catName, image: "", products: [] });
     saveData(data);
     delete adminState[userId];
-    return ctx.reply(`✅ Catégorie "${state.catName}" ajoutée avec succès !`);
+    return ctx.reply(`✅ Catégorie "${state.catName}" ajoutée !`);
   }
-
   if (state.step === "WAITING_PROD_TITLE") {
     state.title = ctx.message.text;
     state.step = "WAITING_PROD_DESC";
     return ctx.reply("Entrez la description du produit :");
   }
-
   if (state.step === "WAITING_PROD_DESC") {
     state.description = ctx.message.text;
     state.step = "WAITING_PROD_PRICE";
-    return ctx.reply("Entrez le prix du produit (ex: 20€) :");
+    return ctx.reply("Entrez le prix du produit :");
   }
-
   if (state.step === "WAITING_PROD_PRICE") {
     state.price = ctx.message.text;
     state.step = "WAITING_PROD_PHOTO";
-    return ctx.reply("Envoyez directement la photo du produit dans le tchat (ou tapez 'passer') :");
+    return ctx.reply("Envoyez la photo du produit (ou tapez 'passer') :");
   }
-
   if (state.step === "WAITING_PROD_PHOTO" && ctx.message.text.toLowerCase() === "passer") {
-    const data = loadData();
     data.categories[state.catIndex].products.push({
       title: state.title,
       description: state.description,
@@ -140,30 +231,27 @@ bot.on("text", async (ctx) => {
     });
     saveData(data);
     delete adminState[userId];
-    return ctx.reply("✅ Produit ajouté sans photo !");
+    return ctx.reply("✅ Produit ajouté !");
   }
 });
 
-// Traitement de l'envoi de photos
+// Traitement des photos envoyées par l'admin
 bot.on("photo", async (ctx) => {
   const userId = ctx.from.id;
   const state = adminState[userId];
   if (!state) return;
 
-  const photoArray = ctx.message.photo;
-  const fileId = photoArray[photoArray.length - 1].file_id;
+  const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
   const fileUrl = await ctx.telegram.getFileLink(fileId);
+  const data = loadData();
 
   if (state.step === "WAITING_CAT_PHOTO") {
-    const data = loadData();
     data.categories.push({ name: state.catName, image: fileUrl.href, products: [] });
     saveData(data);
     delete adminState[userId];
     return ctx.reply(`✅ Catégorie "${state.catName}" ajoutée avec photo !`);
   }
-
   if (state.step === "WAITING_PROD_PHOTO") {
-    const data = loadData();
     data.categories[state.catIndex].products.push({
       title: state.title,
       description: state.description,
@@ -172,7 +260,7 @@ bot.on("photo", async (ctx) => {
     });
     saveData(data);
     delete adminState[userId];
-    return ctx.reply("✅ Produit ajouté avec succès avec sa photo !");
+    return ctx.reply("✅ Produit ajouté avec photo !");
   }
 });
 
