@@ -13,7 +13,29 @@
       margin: 0;
       padding: 16px;
     }
-    h1 { font-size: 20px; text-align: center; margin-bottom: 16px; }
+    .header-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .store-logo {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 50%;
+      margin-bottom: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .store-desc {
+      font-size: 14px;
+      opacity: 0.85;
+      margin-top: 4px;
+      line-height: 1.4;
+      max-width: 90%;
+    }
+    h1 { font-size: 20px; text-align: center; margin: 8px 0 16px 0; }
     .nav-btn {
       background: none; border: none; color: #2481cc;
       font-weight: bold; cursor: pointer; margin-bottom: 12px; display: none;
@@ -52,6 +74,9 @@
 <body>
 
   <button id="nav-btn" class="nav-btn" onclick="showCategories()">⬅️ Retour aux catégories</button>
+
+  <div id="store-header" class="header-container"></div>
+
   <h1 id="title">📁 Catégories</h1>
   <div id="content" class="grid">Chargement...</div>
 
@@ -59,19 +84,37 @@
     const tg = window.Telegram.WebApp;
     tg.expand();
 
-    let storeData = { categories: [], settings: {} };
+    let storeData = { categories: [], storeInfo: {}, settings: {} };
     let currentCategoryIndex = null;
 
     fetch('/api/products')
       .then(res => res.json())
       .then(data => {
         storeData = data;
+        renderHeader();
         showCategories();
       });
+
+    function renderHeader() {
+      const header = document.getElementById('store-header');
+      header.innerHTML = '';
+
+      const info = storeData.storeInfo;
+      if (!info) return;
+
+      if (info.logoActive && info.logoUrl) {
+        header.innerHTML += `<img src="${info.logoUrl}" class="store-logo" alt="Logo">`;
+      }
+      if (info.description) {
+        header.innerHTML += `<div class="store-desc">${info.description}</div>`;
+      }
+    }
 
     function showCategories() {
       document.getElementById('title').innerText = "📁 Catégories";
       document.getElementById('nav-btn').style.display = 'none';
+      document.getElementById('store-header').style.display = 'flex';
+      
       const container = document.getElementById('content');
       container.innerHTML = '';
 
@@ -92,6 +135,8 @@
 
     function showProducts(catIndex) {
       currentCategoryIndex = catIndex;
+      document.getElementById('store-header').style.display = 'none';
+
       const category = storeData.categories[catIndex];
       document.getElementById('title').innerText = category.name;
       const navBtn = document.getElementById('nav-btn');
@@ -125,7 +170,9 @@
     }
 
     function checkout(title, price) {
+      document.getElementById('store-header').style.display = 'none';
       document.getElementById('title').innerText = "💳 Règlement";
+      
       const navBtn = document.getElementById('nav-btn');
       navBtn.innerText = "⬅️ Retour aux produits";
       navBtn.onclick = () => showProducts(currentCategoryIndex);
