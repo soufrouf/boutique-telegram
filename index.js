@@ -92,21 +92,34 @@ bot.action(/admin_select_cat_(\d+)/, (ctx) => {
   ctx.reply("Entrez le titre du produit :");
 });
 
-bot.on("text", (ctx) => {
+// Traitement des messages texte
+bot.on("text", async (ctx) => {
   const userId = ctx.from.id;
   const state = adminState[userId];
   if (!state) return;
 
   if (state.step === "WAITING_CAT_NAME") {
+    state.catName = ctx.message.text;
+    state.step = "WAITING_CAT_PHOTO";
+    return ctx.reply(`Envoyez la photo pour la catégorie "${state.catName}" (ou tapez 'passer') :`);
+  }
+
+  if (state.step === "WAITING_CAT_PHOTO" && ctx.message.text.toLowerCase() === "passer") {
     const data = loadData();
-    data.categories.push({ name: ctx.message.text, products: [] });
+    data.categories.push({ name: state.catName, image: "", products: [] });
     saveData(data);
     delete adminState[userId];
-    return ctx.reply(`✅ Catégorie "${ctx.message.text}" ajoutée avec succès !`);
+    return ctx.reply(`✅ Catégorie "${state.catName}" ajoutée avec succès !`);
   }
 
   if (state.step === "WAITING_PROD_TITLE") {
     state.title = ctx.message.text;
+    state.step = "WAITING_PROD_DESC";
+    return ctx.reply("Entrez la description du produit :");
+  }
+
+  if (state.step === "WAITING_PROD_DESC") {
+    state.description = ctx.message.text;
     state.step = "WAITING_PROD_PRICE";
     return ctx.reply("Entrez le prix du produit (ex: 20€) :");
   }
@@ -114,20 +127,52 @@ bot.on("text", (ctx) => {
   if (state.step === "WAITING_PROD_PRICE") {
     state.price = ctx.message.text;
     state.step = "WAITING_PROD_PHOTO";
-    return ctx.reply("Envoyez le lien (URL) de l'image du produit (ou tapez 'passer' pour ne pas en mettre) :");
+    return ctx.reply("Envoyez directement la photo du produit dans le tchat (ou tapez 'passer') :");
   }
 
-  if (state.step === "WAITING_PROD_PHOTO") {
-    const photoUrl = ctx.message.text.toLowerCase() === "passer" ? "" : ctx.message.text;
+  if (state.step === "WAITING_PROD_PHOTO" && ctx.message.text.toLowerCase() === "passer") {
     const data = loadData();
     data.categories[state.catIndex].products.push({
       title: state.title,
+      description: state.description,
       price: state.price,
-      image: photoUrl
+      image: ""
     });
     saveData(data);
     delete adminState[userId];
-    return ctx.reply("✅ Produit ajouté au catalogue !");
+    return ctx.reply("✅ Produit ajouté sans photo !");
+  }
+});
+
+// Traitement de l'envoi de photos
+bot.on("photo", async (ctx) => {
+  const userId = ctx.from.id;
+  const state = adminState[userId];
+  if (!state) return;
+
+  const photoArray = ctx.message.photo;
+  const fileId = photoArray[photoArray.length - 1].file_id;
+  const fileUrl = await ctx.telegram.getFileLink(fileId);
+
+  if (state.step === "WAITING_CAT_PHOTO") {
+    const data = loadData();
+    data.categories.push({ name: state.catName, image: fileUrl.href, products: [] });
+    saveData(data);
+    delete adminState[userId];
+    return ctx.reply(`✅ Catégorie "${state.catName}" ajoutée avec photo !`);
+  }
+
+  if (state.step === "WAITING_PROD_PHOTO") {
+    const data = loadData();
+    data.categories[state.catIndex].products.push({
+      title: state.title,
+      description: state.description,
+      price: state.price,
+      image: fileUrl.href
+    });
+    saveData(data);
+    delete adminState[userId];
+    return ctx.reply("✅ Produit ajouté avec succès avec sa photo !");
   }
 });
 
